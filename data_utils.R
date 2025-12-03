@@ -1,56 +1,83 @@
-# data_utils.R - Enforced Numeric Matrix Version
+# data_utils.R - Real Datasets Version
+# Handles downloading, parsing, and matrix conversion for real-world data
+
 load_data <- function(dataset_name) {
-  set.seed(42)
   
-  if (dataset_name == "Movie Ratings (Simulated)") {
-    n_users <- 100
-    n_movies <- 50
-    # Use 0.0 to ensure float matrix
-    X <- matrix(0.0, nrow = n_users, ncol = n_movies)
+  # ==========================================
+  # 1. Real Dataset: MovieLens 100k (Sparse)
+  # ==========================================
+  if (dataset_name == "MovieLens 100k (Real)") {
     
-    U_true <- matrix(abs(rnorm(n_users * 5, mean = 3, sd = 1)), nrow = n_users)
-    V_true <- matrix(abs(rnorm(5 * n_movies, mean = 3, sd = 1)), nrow = 5)
-    X_complete <- U_true %*% V_true
+    # Define local filename
+    ml_file <- "ml-100k-u.data"
     
-    # Add sparsity
-    for (i in 1:n_users) {
-      for (j in 1:n_movies) {
-        if (runif(1) < 0.3) {
-          # Force conversion to float
-          X[i, j] <- as.numeric(pmax(1.0, pmin(5.0, X_complete[i, j] + rnorm(1, 0, 0.5))))
-        }
-      }
+    # Check if file exists, if not, download from official source
+    if (!file.exists(ml_file)) {
+      message("Downloading MovieLens 100k dataset...")
+      tryCatch({
+        download.file("https://files.grouplens.org/datasets/movielens/ml-100k/u.data", 
+                      destfile = ml_file, method = "auto", quiet = TRUE)
+      }, error = function(e) {
+        stop("Failed to download MovieLens data. Please check your internet connection.")
+      })
     }
     
-    # ==== Double check: Force conversion to numeric matrix ====
-    X <- as.matrix(X)
-    storage.mode(X) <- "double"  # Explicitly double precision float
-    X[is.na(X)] <- 0.0
+    # Read data (Format: User ID | Item ID | Rating | Timestamp)
+    # This imports as a data frame (Long format)
+    raw_data <- read.table(ml_file, sep = "\t", header = FALSE, 
+                           col.names = c("user_id", "item_id", "rating", "timestamp"))
+    
+    # ==== Data Transformation: Long Format to Sparse Matrix (User x Item) ====
+    # Logic: Use xtabs to pivot data.
+    # Optimization: We take the top 200 users and 300 movies to ensure 
+    # the pure R implementation runs smoothly during the demo.
+    
+    top_users <- unique(raw_data$user_id)[1:200]
+    top_items <- unique(raw_data$item_id)[1:300]
+    
+    subset_data <- raw_data[raw_data$user_id %in% top_users & 
+                              raw_data$item_id %in% top_items, ]
+    
+    # Convert to matrix (Missing ratings become 0)
+    X_sparse <- xtabs(rating ~ user_id + item_id, data = subset_data)
+    X <- as.matrix(X_sparse)
+    
+    # Enforce double precision for numerical stability
+    storage.mode(X) <- "double"
     
     return(list(
       X = X,
-      title = "Simulated Movie Ratings",
-      description = paste("A", n_users, "x", n_movies, "numeric sparse matrix.")
+      title = "MovieLens 100k (Subset)",
+      description = paste("Real user ratings from MovieLens.",
+                          "\nDimensions:", nrow(X), "Users x", ncol(X), "Movies.",
+                          "\nSparsity:", round(sum(X==0)/length(X)*100, 1), "% zeros.",
+                          "\n(Subsampled for performance efficiency)")
     ))
     
-  } else if (dataset_name == "Face Images (Simulated)") {
-    n_pixels <- 64 * 64
-    n_faces <- 50
-    k_true <- 15
+    # ==========================================
+    # 2. Real Dataset: Volcano Topography (Dense)
+    # ==========================================
+  } else if (dataset_name == "Volcano Topography (Real)") {
     
-    A <- matrix(abs(rnorm(n_pixels * k_true)), nrow = n_pixels)
-    B <- matrix(abs(rnorm(k_true * n_faces)), nrow = k_true)
-    X <- A %*% B + matrix(rnorm(n_pixels * n_faces, 0, 0.1), nrow = n_pixels)
+    # Load R's built-in Volcano dataset
+    data(volcano)
     
-    # ==== Double check: Force conversion to numeric matrix ====
-    X <- as.matrix(X)
+    # Volcano is an 87x61 matrix
+    X <- as.matrix(volcano)
+    
+    # Normalize to 0-100 range for better NMF compatibility (NMF requires non-negative)
+    X <- X - min(X) 
+    
+    # Enforce double precision
     storage.mode(X) <- "double"
-    X[is.na(X)] <- 0.0
     
     return(list(
       X = X,
-      title = "Simulated Face Images",
-      description = paste("64x64 pixels, 50 samples. Low-rank + noise.")
+      title = "Maunga Whau Volcano",
+      description = paste("Topographic information on Maunga Whau volcano.",
+                          "\nDimensions:", nrow(X), "x", ncol(X), "grid points.",
+                          "\nType: Dense, Non-negative matrix.",
+                          "\n(Ideal for demonstrating image/surface compression)")
     ))
   }
 }
