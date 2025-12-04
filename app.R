@@ -1,5 +1,6 @@
 # app.R - Final Project Dashboard
 # Comparison of Normal vs. Randomized Matrix Approximation
+# Deep Dive Focus: Randomized Algorithms
 
 library(shiny)
 library(shinydashboard)
@@ -28,14 +29,16 @@ ui <- dashboardPage(
     div(style = "padding: 15px;",
         h4("Control Panel"),
         
-        # 1. Dataset Selection (Updated for Real Data)
+        # 1. Dataset Selection
         selectInput("dataset", "1. Select Dataset:",
-                    choices = c("MovieLens 100k (Real)", "Volcano Topography (Real)")),
+                    choices = c("MovieLens 100k (Real)", 
+                                "Volcano Topography (Real)",
+                                "Large Synthetic (Benchmark)")), 
         
-        # 2. Algorithm Family Selection (Updated terminology to 'Normal')
+        # 2. Algorithm Family Selection
         selectInput("method_family", "2. Algorithm Family:",
                     choices = c("SVD (Normal vs Randomized)" = "svd", 
-                                "NMF (Random vs rSVD Init)" = "nmf",
+                                "NMF (Random Init vs Randomized HALS)" = "nmf",
                                 "CUR (Top vs Weighted)" = "cur")),
         
         # 3. Rank Slider
@@ -100,9 +103,9 @@ ui <- dashboardPage(
               )
       ),
       
-      # ==== TAB 3: DEEP DIVE (SHOWING NORMAL / DETERMINISTIC RESULT) ====
+      # ==== TAB 3: DEEP DIVE (SWITCHED TO RANDOMIZED RESULT) ====
       tabItem(tabName = "deep_dive",
-              h4("Detailed Analysis of Normal (Deterministic) Algorithm"),
+              h4("Detailed Analysis of Randomized (Approximate) Algorithm"),
               fluidRow(
                 valueBoxOutput("dd_time", width = 4),
                 valueBoxOutput("dd_error", width = 4),
@@ -120,11 +123,11 @@ ui <- dashboardPage(
               ),
               fluidRow(
                 box(width = 6, status = "success", solidHeader = TRUE,
-                    title = "Factor Components / Basis (Deterministic)",
+                    title = "Factor Components / Basis (Randomized)",
                     plotOutput("plot_dd_comp", height = "400px")
                 ),
                 box(width = 6, status = "warning", solidHeader = TRUE,
-                    title = "Singular Values / Residuals",
+                    title = "Algorithm Behavior (Randomized)",
                     plotOutput("plot_dd_behavior", height = "400px")
                 )
               )
@@ -260,22 +263,22 @@ server <- function(input, output, session) {
     valueBox(txt, "Accuracy Comparison", icon = icon("check-circle"), color = color)
   })
   
-  # ==== TAB 3: DEEP DIVE LOGIC (SWITCHED TO NORMAL / DETERMINISTIC) ====
+  # ==== TAB 3: DEEP DIVE LOGIC (SWITCHED TO RANDOMIZED) ====
   
   output$dd_time <- renderValueBox({
-    req(store$time_norm) # Using Normal Time
-    valueBox(sprintf("%.3f s", store$time_norm), "Compute Time", icon("clock"), color = "aqua")
+    req(store$time_rand) # Using Randomized Time
+    valueBox(sprintf("%.3f s", store$time_rand), "Compute Time", icon("clock"), color = "aqua")
   })
   
   output$dd_error <- renderValueBox({
-    req(store$res_norm) # Using Normal Result
-    err <- norm(store$data_list$X - store$res_norm$recon, "F") / norm(store$data_list$X, "F")
+    req(store$res_rand) # Using Randomized Result
+    err <- norm(store$data_list$X - store$res_rand$recon, "F") / norm(store$data_list$X, "F")
     valueBox(sprintf("%.4f", err), "Relative Error", icon("chart-line"), color = "purple")
   })
   
   output$dd_dims <- renderValueBox({
-    req(store$res_norm) # Using Normal Result
-    dim_str <- paste(dim(store$res_norm$components), collapse = " x ")
+    req(store$res_rand) # Using Randomized Result
+    dim_str <- paste(dim(store$res_rand$components), collapse = " x ")
     valueBox(dim_str, "Feature Dims", icon("ruler-combined"), color = "teal")
   })
   
@@ -285,46 +288,46 @@ server <- function(input, output, session) {
   })
   
   output$plot_dd_recon <- renderPlot({
-    req(store$res_norm) # Plotting Normal Reconstruction
-    plot_matrix_heatmap(store$res_norm$recon, "Reconstructed (Normal/Deterministic)")
+    req(store$res_rand) # Plotting Randomized Reconstruction
+    plot_matrix_heatmap(store$res_rand$recon, "Reconstructed (Randomized/Approximate)")
   })
   
   output$txt_dd_recon_title <- renderText({
-    paste("Reconstructed Matrix (Rank", input$rank, ") - Normal")
+    paste("Reconstructed Matrix (Rank", input$rank, ") - Randomized")
   })
   
   output$plot_dd_comp <- renderPlot({
-    req(store$res_norm) # Plotting Normal Components
-    comps <- store$res_norm$components
+    req(store$res_rand) # Plotting Randomized Components
+    comps <- store$res_rand$components
     if (ncol(comps) > 10) comps <- comps[, 1:10, drop=FALSE]
     plot_matrix_heatmap(comps, "Basis Components (Top 10)")
   })
   
   output$plot_dd_behavior <- renderPlot({
-    req(store$res_norm) # Using Normal Data for Behavior Analysis
+    req(store$res_rand) # Using Randomized Data for Behavior Analysis
     
     if (input$method_family == "svd") {
-      # For Normal SVD, plotting the true Singular Values (Scree Plot)
-      # We recompute exact singular values for visualization purposes
-      s_vals <- svd(store$data_list$X, nu=0, nv=0)$d[1:min(50, length(store$data_list$X))]
-      df <- data.frame(Index = 1:length(s_vals), Value = s_vals)
-      ggplot(df, aes(Index, Value)) + geom_col(fill="blue") + 
-        labs(title = "True Singular Values (Scree Plot)", y="Value") + theme_minimal()
+      # For Randomized SVD, we visualize the first basis vector to show the captured pattern
+      df <- data.frame(Index = 1:nrow(store$res_rand$components), 
+                       Value = store$res_rand$components[,1])
+      ggplot(df, aes(Index, Value)) + geom_line(color="blue") + 
+        labs(title = "First Basis Vector (Pattern)", y="Value") + theme_minimal()
       
     } else if (input$method_family == "nmf") {
-      # For Normal NMF, plot Residual Distribution
-      residuals <- as.vector(store$data_list$X - store$res_norm$recon)
+      # For Randomized NMF, plot Residual Distribution
+      # Note: This checks the quality of the 'Optimized' convergence
+      residuals <- as.vector(store$data_list$X - store$res_rand$recon)
       if(length(residuals) > 5000) residuals <- sample(residuals, 5000)
       df <- data.frame(Resid = residuals)
       ggplot(df, aes(x=Resid)) + geom_histogram(fill="steelblue", bins=30) +
-        labs(title = "Residual Distribution (Normal NMF)", x="Error Value") + theme_minimal()
+        labs(title = "Residual Distribution (Randomized NMF)", x="Error Value") + theme_minimal()
       
     } else {
-      # For Normal CUR, plot Leverage Scores
-      levs <- rowSums(store$res_norm$components^2) 
+      # For Randomized CUR, plot Leverage Scores of the *selected* columns/matrix
+      levs <- rowSums(store$res_rand$components^2) 
       df <- data.frame(Index = 1:length(levs), Leverage = levs)
       ggplot(df, aes(Index, Leverage)) + geom_point(alpha=0.5) +
-        labs(title = "Row Leverage Scores (Deterministic Selection)", y="Score") + theme_minimal()
+        labs(title = "Row Importance (Randomized Sampling)", y="Score") + theme_minimal()
     }
   })
 }
